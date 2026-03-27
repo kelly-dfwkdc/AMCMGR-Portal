@@ -497,7 +497,11 @@ function DocumentsPage({ clientId }) {
     return `${(bytes/1048576).toFixed(1)} MB`;
   };
 
-  const catFolderIcon = { Minutes: "📁", Financials: "📁", Bylaws: "📁", Reports: "📁", Other: "📁" };
+  const catFolderIcon = {
+    "Board Agendas": "📋", "Bylaws": "📜", "Meeting Minutes": "📝",
+    "Financials": "💰", "Membership": "👥", "Events": "📅",
+    "Committee Reports": "📊", "Other": "📁",
+  };
 
   if (loading) return <div style={{ textAlign: "center", padding: 60, fontFamily: "Outfit, sans-serif", color: C.muted }}>Loading documents…</div>;
 
@@ -534,7 +538,7 @@ function DocumentsPage({ clientId }) {
                 {/* Folder header */}
                 <div onClick={() => setExpanded(e => ({ ...e, [cat]: !isOpen }))}
                   style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: C.card, cursor: "pointer", userSelect: "none" }}>
-                  <span style={{ fontSize: 18 }}>{isOpen ? "📂" : "📁"}</span>
+                  <span style={{ fontSize: 18 }}>{isOpen ? "📂" : (catFolderIcon[cat] || "📁")}</span>
                   <span style={{ fontFamily: "Outfit, sans-serif", fontSize: 14, fontWeight: 700, color: C.text, flex: 1 }}>{cat}</span>
                   <span style={{ fontFamily: "Outfit, sans-serif", fontSize: 11, color: C.muted }}>{files.length} file{files.length !== 1 ? "s" : ""}</span>
                   <span style={{ color: C.muted, fontSize: 12 }}>{isOpen ? "▾" : "▸"}</span>
