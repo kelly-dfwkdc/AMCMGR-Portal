@@ -511,6 +511,19 @@ function DocumentsPage({ clientId }) {
 
   return (
     <div>
+      {/* Egnyte upload banner */}
+      <div style={{ background: "rgba(45,212,191,0.08)", border: `1px solid rgba(45,212,191,0.2)`, borderRadius: 10, padding: "12px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 13, fontWeight: 700, color: C.teal, marginBottom: 2 }}>📤 Submit a Document</div>
+          <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.muted }}>Upload files to the chapter shared folder — KDC will review and add them to the portal.</div>
+        </div>
+        <a href="https://kellydandoconsulting.egnyte.com/fl/yFpthgq3FCcW" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+          <button style={{ background: C.teal, color: "#0A0F1E", border: "none", borderRadius: 8, padding: "10px 20px", fontFamily: "Outfit, sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+            📁 Open Upload Folder →
+          </button>
+        </a>
+      </div>
+
       {/* Toolbar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
