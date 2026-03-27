@@ -227,7 +227,7 @@ function NotAuthorizedPage({ email, onSignOut }) {
 // DASHBOARD PAGE
 // ══════════════════════════════════════════════════════════════════════════════
 function DashboardPage({ boardUser, tasks, events, messages }) {
-  const openTasks    = tasks.filter(t => t.status !== "Completed");
+  const openTasks    = tasks.filter(t => t.status !== "Completed" && t.status !== "Complete");
   const nextEvent    = events.filter(e => e.event_date >= new Date().toISOString().slice(0,10)).sort((a,b) => a.event_date.localeCompare(b.event_date))[0];
   const recentMsg    = messages.slice(0, 3);
   const urgentTasks  = openTasks.filter(t => t.priority === "High");
@@ -327,7 +327,11 @@ function DashboardPage({ boardUser, tasks, events, messages }) {
 function TasksPage({ tasks }) {
   const [filter, setFilter] = useState("Open");
   const filters = ["All", "Open", "In Progress", "Completed"];
-  const shown = filter === "All" ? tasks : tasks.filter(t => t.status === filter || (filter === "Open" && (t.status === "Open" || t.status === "Planned")));
+  const shown = filter === "All" ? tasks 
+    : filter === "Open" ? tasks.filter(t => t.status === "Open" || t.status === "Planned" || t.status === "open")
+    : filter === "In Progress" ? tasks.filter(t => t.status === "In Progress")
+    : filter === "Completed" ? tasks.filter(t => t.status === "Completed" || t.status === "Complete")
+    : tasks.filter(t => t.status === filter);
 
   return (
     <div>
@@ -718,7 +722,7 @@ export default function App() {
 
   const loadData = async (clientId) => {
     const [tasksRes, eventsRes, msgsRes] = await Promise.all([
-      supabase.from("tasks").select("*").eq("client_id", clientId).neq("status", "Completed").order("due", { ascending: true, nullsFirst: false }),
+      supabase.from("tasks").select("*").eq("client_id", clientId).order("due", { ascending: true, nullsFirst: false }),
       supabase.from("events").select("*").eq("client_id", clientId).order("date", { ascending: true }),
       supabase.from("board_messages").select("*").eq("client_id", clientId).order("created_at", { ascending: false }),
     ]);
