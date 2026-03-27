@@ -438,14 +438,32 @@ function CalendarPage({ events }) {
 // DOCUMENTS PAGE
 // ══════════════════════════════════════════════════════════════════════════════
 function DocumentsPage({ clientId }) {
-  const [docs, setDocs]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("All");
+  const [docs, setDocs]         = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [filter, setFilter]     = useState("All");
+  const [expanded, setExpanded] = useState({});
+  const [viewMode, setViewMode] = useState("folder"); // "folder" | "grid"
 
   useEffect(() => {
     async function load() {
-      const { data } = await supabase.from("board_documents").select("*").eq("client_id", clientId).order("created_at", { ascending: false });
-      setDocs(data || []);
+      // Load metadata from client_documents table
+      const { data: meta } = await supabase
+        .from("client_documents")
+        .select("*")
+        .eq("client_id", clientId)
+        .order("created_at", { ascending: false });
+
+      if (!meta || meta.length === 0) { setLoading(false); return; }
+
+      // Generate signed URLs for each file
+      const withUrls = await Promise.all((meta||[]).map(async (m) => {
+        const { data: urlData } = await supabase.storage
+          .from("client-documents")
+          .createSignedUrl(m.file_path, 3600); // 1 hour
+        return { ...m, url: urlData?.signedUrl || "" };
+      }));
+
+      setDocs(withUrls);
       setLoading(false);
     }
     load();
@@ -454,40 +472,122 @@ function DocumentsPage({ clientId }) {
   const categories = ["All", ...new Set(docs.map(d => d.category).filter(Boolean))];
   const shown = filter === "All" ? docs : docs.filter(d => d.category === filter);
 
-  const catIcon = { Minutes: "📝", Financials: "💰", Bylaws: "📜", Reports: "📊", Other: "📁" };
+  // Group by category for folder view
+  const grouped = {};
+  shown.forEach(d => {
+    const cat = d.category || "Other";
+    if (!grouped[cat]) grouped[cat] = [];
+    grouped[cat].push(d);
+  });
+
+  const fileIcon = (type) => {
+    if (!type) return "📄";
+    if (type.includes("pdf")) return "📕";
+    if (type.includes("word") || type.includes("doc")) return "📝";
+    if (type.includes("sheet") || type.includes("excel") || type.includes("csv")) return "📊";
+    if (type.includes("image") || type.includes("png") || type.includes("jpg")) return "🖼️";
+    if (type.includes("presentation") || type.includes("powerpoint")) return "📋";
+    return "📄";
+  };
+
+  const fmtSize = (bytes) => {
+    if (!bytes) return "";
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1048576) return `${(bytes/1024).toFixed(1)} KB`;
+    return `${(bytes/1048576).toFixed(1)} MB`;
+  };
+
+  const catFolderIcon = { Minutes: "📁", Financials: "📁", Bylaws: "📁", Reports: "📁", Other: "📁" };
 
   if (loading) return <div style={{ textAlign: "center", padding: 60, fontFamily: "Outfit, sans-serif", color: C.muted }}>Loading documents…</div>;
 
   return (
     <div>
-      <div style={{ marginBottom: 20, display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {categories.map(c => (
-          <button key={c} onClick={() => setFilter(c)} style={{ padding: "6px 16px", borderRadius: 20, border: `1px solid ${filter === c ? C.gold : C.border}`, background: filter === c ? C.goldLight : "transparent", color: filter === c ? C.gold : C.muted, fontFamily: "Outfit, sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{c}</button>
-        ))}
+      {/* Toolbar */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {categories.map(c => (
+            <button key={c} onClick={() => setFilter(c)} style={{ padding: "6px 16px", borderRadius: 20, border: `1px solid ${filter === c ? C.gold : C.border}`, background: filter === c ? C.goldLight : "transparent", color: filter === c ? C.gold : C.muted, fontFamily: "Outfit, sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{c}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.05)", borderRadius: 8, padding: 3 }}>
+          {[["folder","📁 Folders"],["grid","⊞ Grid"]].map(([v,l]) => (
+            <button key={v} onClick={() => setViewMode(v)} style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: viewMode === v ? C.card : "transparent", color: viewMode === v ? C.text : C.muted, fontFamily: "Outfit, sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+          ))}
+        </div>
       </div>
 
-      {shown.length === 0 && (
+      {docs.length === 0 && (
         <Card style={{ textAlign: "center", padding: 48 }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>📂</div>
-          <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 14, color: C.muted }}>No documents yet. KDC will upload files here for your chapter.</div>
+          <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 14, color: C.muted }}>No documents uploaded yet.</div>
         </Card>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
-        {shown.map(d => (
-          <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
-            <Card style={{ height: "100%", cursor: "pointer" }}>
-              <div style={{ fontSize: 28, marginBottom: 10 }}>{catIcon[d.category] || "📄"}</div>
-              <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 6, lineHeight: 1.4 }}>{d.title}</div>
-              {d.category && <Badge label={d.category} color={C.indigo} />}
-              <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 11, color: C.faint, marginTop: 10 }}>
-                Uploaded {fmt(d.created_at?.slice(0, 10))}{d.uploaded_by ? ` by ${d.uploaded_by}` : ""}
+      {/* ── FOLDER VIEW ── */}
+      {viewMode === "folder" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {Object.entries(grouped).map(([cat, files]) => {
+            const isOpen = expanded[cat] !== false; // default open
+            return (
+              <div key={cat} style={{ border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden" }}>
+                {/* Folder header */}
+                <div onClick={() => setExpanded(e => ({ ...e, [cat]: !isOpen }))}
+                  style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: C.card, cursor: "pointer", userSelect: "none" }}>
+                  <span style={{ fontSize: 18 }}>{isOpen ? "📂" : "📁"}</span>
+                  <span style={{ fontFamily: "Outfit, sans-serif", fontSize: 14, fontWeight: 700, color: C.text, flex: 1 }}>{cat}</span>
+                  <span style={{ fontFamily: "Outfit, sans-serif", fontSize: 11, color: C.muted }}>{files.length} file{files.length !== 1 ? "s" : ""}</span>
+                  <span style={{ color: C.muted, fontSize: 12 }}>{isOpen ? "▾" : "▸"}</span>
+                </div>
+                {/* Files inside folder */}
+                {isOpen && (
+                  <div style={{ background: C.surface }}>
+                    {files.map((d, i) => (
+                      <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+                        <div style={{
+                          display: "flex", alignItems: "center", gap: 12, padding: "10px 16px 10px 36px",
+                          borderTop: `1px solid ${C.border}`, transition: "background .15s",
+                        }}
+                          onMouseEnter={e => e.currentTarget.style.background = C.card}
+                          onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                        >
+                          <span style={{ fontSize: 18, flexShrink: 0 }}>{fileIcon(d.file_type)}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 13, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.name}</div>
+                            <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 11, color: C.faint, marginTop: 2 }}>
+                              {fmt(d.created_at?.slice(0, 10))}{d.file_size ? ` · ${fmtSize(d.file_size)}` : ""}{d.uploaded_by ? ` · ${d.uploaded_by}` : ""}
+                            </div>
+                          </div>
+                          <span style={{ fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.teal, fontWeight: 600, flexShrink: 0 }}>Open ↗</span>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div style={{ marginTop: 12, fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.teal, fontWeight: 600 }}>Open document ↗</div>
-            </Card>
-          </a>
-        ))}
-      </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── GRID VIEW ── */}
+      {viewMode === "grid" && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 14 }}>
+          {shown.map(d => (
+            <a key={d.id} href={d.url} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+              <Card style={{ cursor: "pointer" }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>{fileIcon(d.file_type)}</div>
+                <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6, lineHeight: 1.4 }}>{d.name}</div>
+                {d.category && <Badge label={d.category} color={C.indigo} />}
+                <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 11, color: C.faint, marginTop: 10 }}>
+                  {fmt(d.created_at?.slice(0, 10))}{d.file_size ? ` · ${fmtSize(d.file_size)}` : ""}
+                </div>
+                <div style={{ marginTop: 10, fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.teal, fontWeight: 600 }}>Open ↗</div>
+              </Card>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
