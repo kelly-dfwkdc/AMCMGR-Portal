@@ -615,11 +615,15 @@ export default function App() {
   const loadData = async (clientId) => {
     const [tasksRes, eventsRes, msgsRes] = await Promise.all([
       supabase.from("tasks").select("*").eq("client_id", clientId).neq("status", "Completed").order("due", { ascending: true, nullsFirst: false }),
-      supabase.from("events").select("*").eq("client_id", clientId).order("event_date", { ascending: true }),
+      supabase.from("events").select("*").eq("client_id", clientId).order("date", { ascending: true }),
       supabase.from("board_messages").select("*").eq("client_id", clientId).order("created_at", { ascending: false }),
     ]);
     setTasks(tasksRes.data   || []);
-    setEvents(eventsRes.data || []);
+    setEvents((eventsRes.data || []).map(e => ({
+      ...e,
+      event_date: e.event_date || e.date || "",
+      event_time: e.event_time || e.time || "",
+    })));
     setMessages(msgsRes.data || []);
   };
 
@@ -714,4 +718,3 @@ export default function App() {
     </div>
   );
 }
-
