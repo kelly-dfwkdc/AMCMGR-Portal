@@ -923,7 +923,10 @@ export default function App() {
     if (data) {
       setBoardUser(data);
       setAuthState("authorized");
-      loadData(data.client_id);
+      loadData(data.client_id).then(cleanup => {
+        // Store cleanup for unmount
+        if (cleanup) window._realtimeCleanup = cleanup;
+      });
       // Load all board users for this chapter so tasks can be assigned
       supabase.from("board_users").select("*").eq("client_id", data.client_id).eq("active", true)
         .then(({ data: users }) => setBoardUsers(users || []));
@@ -945,6 +948,65 @@ export default function App() {
       event_time: e.event_time || e.time || "",
     })));
     setMessages(msgsRes.data || []);
+
+    // ── Realtime subscriptions ─────────────────────────────────────────────
+    // Messages: sync inserts, updates, deletes in real time
+    const msgChannel = supabase
+      .channel(`board_messages_${clientId}`)
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "board_messages",
+        filter: `client_id=eq.${clientId}`,
+      }, payload => {
+        setMessages(ms => {
+          if (ms.find(m => m.id === payload.new.id)) return ms;
+          return [payload.new, ...ms];
+        });
+      })
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "board_messages",
+        filter: `client_id=eq.${clientId}`,
+      }, payload => {
+        setMessages(ms => ms.map(m => m.id === payload.new.id ? payload.new : m));
+      })
+      .on("postgres_changes", {
+        event: "DELETE", schema: "public", table: "board_messages",
+        filter: `client_id=eq.${clientId}`,
+      }, payload => {
+        setMessages(ms => ms.filter(m => m.id !== payload.old.id));
+      })
+      .subscribe();
+
+    // Tasks: sync status changes and new tasks in real time
+    const taskChannel = supabase
+      .channel(`tasks_${clientId}`)
+      .on("postgres_changes", {
+        event: "INSERT", schema: "public", table: "tasks",
+        filter: `client_id=eq.${clientId}`,
+      }, payload => {
+        setTasks(ts => {
+          if (ts.find(t => t.id === payload.new.id)) return ts;
+          return [payload.new, ...ts];
+        });
+      })
+      .on("postgres_changes", {
+        event: "UPDATE", schema: "public", table: "tasks",
+        filter: `client_id=eq.${clientId}`,
+      }, payload => {
+        setTasks(ts => ts.map(t => t.id === payload.new.id ? payload.new : t));
+      })
+      .on("postgres_changes", {
+        event: "DELETE", schema: "public", table: "tasks",
+        filter: `client_id=eq.${clientId}`,
+      }, payload => {
+        setTasks(ts => ts.filter(t => t.id !== payload.old.id));
+      })
+      .subscribe();
+
+    // Return cleanup function
+    return () => {
+      supabase.removeChannel(msgChannel);
+      supabase.removeChannel(taskChannel);
+    };
   };
 
   const signOut = async () => {
