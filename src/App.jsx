@@ -324,14 +324,61 @@ function DashboardPage({ boardUser, tasks, events, messages }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // TASKS PAGE
 // ══════════════════════════════════════════════════════════════════════════════
-function TasksPage({ tasks }) {
-  const [filter, setFilter] = useState("Open");
+function TasksPage({ tasks, setTasks, boardUser, boardUsers }) {
+  const [filter, setFilter]       = useState("Open");
+  const [editingTask, setEditingTask] = useState(null);
+  const [editForm, setEditForm]   = useState({});
+  const [showAdd, setShowAdd]     = useState(false);
+  const [newForm, setNewForm]     = useState({title:"", due:"", priority:"Normal", assigned_to:"", notes:""});
+  const [saving, setSaving]       = useState(false);
+
   const filters = ["All", "Open", "In Progress", "Completed"];
   const shown = filter === "All" ? tasks 
     : filter === "Open" ? tasks.filter(t => t.status === "Open" || t.status === "Planned" || t.status === "open")
     : filter === "In Progress" ? tasks.filter(t => t.status === "In Progress")
     : filter === "Completed" ? tasks.filter(t => t.status === "Completed" || t.status === "Complete")
     : tasks.filter(t => t.status === filter);
+
+  // All assignable people = board users + KDC admin
+  const assignees = ["KDC Team", ...boardUsers.map(u => u.full_name).filter(Boolean)];
+
+  const cycleStatus = async (t) => {
+    const cycle = {"Open":"In Progress","Planned":"In Progress","open":"In Progress","In Progress":"Completed","Completed":"Open","Complete":"Open"};
+    const newStatus = cycle[t.status] || "In Progress";
+    setTasks(ts => ts.map(x => x.id === t.id ? {...x, status: newStatus} : x));
+    await supabase.from("tasks").update({status: newStatus}).eq("id", t.id);
+  };
+
+  const startEdit = (t) => { setEditingTask(t.id); setEditForm({title:t.title, due:t.due||"", priority:t.priority||"Normal", assigned_to:t.assigned_to||"", notes:t.notes||"", status:t.status||"Open"}); };
+  
+  const saveEdit = async () => {
+    setTasks(ts => ts.map(x => x.id === editingTask ? {...x, ...editForm} : x));
+    await supabase.from("tasks").update({
+      title: editForm.title, due: editForm.due||null, priority: editForm.priority,
+      assigned_to: editForm.assigned_to, notes: editForm.notes, status: editForm.status,
+    }).eq("id", editingTask);
+    setEditingTask(null);
+  };
+
+  const addTask = async () => {
+    if (!newForm.title.trim()) return;
+    setSaving(true);
+    const { data, error } = await supabase.from("tasks").insert({
+      client_id:   boardUser.client_id,
+      title:       newForm.title.trim(),
+      due:         newForm.due || null,
+      priority:    newForm.priority || "Normal",
+      status:      "Open",
+      assigned_to: newForm.assigned_to || "KDC Team",
+      notes:       newForm.notes || "",
+    }).select().single();
+    if (!error && data) {
+      setTasks(ts => [data, ...ts]);
+      setNewForm({title:"", due:"", priority:"Normal", assigned_to:"", notes:""});
+      setShowAdd(false);
+    }
+    setSaving(false);
+  };
 
   return (
     <div>
@@ -346,6 +393,48 @@ function TasksPage({ tasks }) {
         ))}
       </div>
 
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+        <button onClick={() => setShowAdd(s => !s)} style={{ background: C.gold, color: "#0A0F1E", border: "none", borderRadius: 8, padding: "8px 18px", fontFamily: "Outfit, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>+ Add Task</button>
+      </div>
+
+      {showAdd && (
+        <Card style={{ marginBottom: 16 }}>
+          <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 12 }}>New Task</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <input value={newForm.title} onChange={e => setNewForm(f=>({...f,title:e.target.value}))} placeholder="Task title *"
+              style={{ width:"100%", padding:"8px 12px", borderRadius:7, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit, sans-serif", fontSize:13, color:C.text, outline:"none", boxSizing:"border-box" }}/>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10 }}>
+              <div>
+                <div style={{ fontFamily:"Outfit,sans-serif", fontSize:10, color:C.faint, marginBottom:3 }}>DUE DATE</div>
+                <input type="date" value={newForm.due} onChange={e=>setNewForm(f=>({...f,due:e.target.value}))}
+                  style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:12, color:C.text, outline:"none", boxSizing:"border-box" }}/>
+              </div>
+              <div>
+                <div style={{ fontFamily:"Outfit,sans-serif", fontSize:10, color:C.faint, marginBottom:3 }}>PRIORITY</div>
+                <select value={newForm.priority} onChange={e=>setNewForm(f=>({...f,priority:e.target.value}))}
+                  style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:12, color:C.text, outline:"none", boxSizing:"border-box" }}>
+                  {["High","Normal","Low"].map(p=><option key={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ fontFamily:"Outfit,sans-serif", fontSize:10, color:C.faint, marginBottom:3 }}>ASSIGN TO</div>
+                <select value={newForm.assigned_to} onChange={e=>setNewForm(f=>({...f,assigned_to:e.target.value}))}
+                  style={{ width:"100%", padding:"7px 10px", borderRadius:7, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:12, color:C.text, outline:"none", boxSizing:"border-box" }}>
+                  <option value="">Select…</option>
+                  {assignees.map(a=><option key={a}>{a}</option>)}
+                </select>
+              </div>
+            </div>
+            <input value={newForm.notes} onChange={e=>setNewForm(f=>({...f,notes:e.target.value}))} placeholder="Notes (optional)"
+              style={{ width:"100%", padding:"8px 12px", borderRadius:7, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:12, color:C.text, outline:"none", boxSizing:"border-box" }}/>
+            <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+              <button onClick={()=>setShowAdd(false)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, padding:"7px 14px", fontFamily:"Outfit,sans-serif", fontSize:12, color:C.muted, cursor:"pointer" }}>Cancel</button>
+              <button onClick={addTask} disabled={saving||!newForm.title.trim()} style={{ background:C.gold, color:"#0A0F1E", border:"none", borderRadius:7, padding:"7px 18px", fontFamily:"Outfit,sans-serif", fontSize:12, fontWeight:700, cursor:"pointer" }}>{saving?"Saving…":"Save Task"}</button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {shown.length === 0 && (
         <Card style={{ textAlign: "center", padding: 40 }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>✓</div>
@@ -358,20 +447,72 @@ function TasksPage({ tasks }) {
           const days = daysUntil(t.due);
           const overdue = days !== null && days < 0;
           const s = TASK_STATUS[t.status] || { color: C.muted };
+          const isEditing = editingTask === t.id;
           return (
-            <Card key={t.id} style={{ display: "flex", gap: 16, alignItems: "flex-start", padding: "16px 20px" }}>
-              {/* Priority dot */}
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: t.priority === "High" ? C.red : t.priority === "Low" ? C.faint : C.amber, marginTop: 6, flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>{t.title}</div>
-                <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.muted }}>
-                  {t.assigned_to && <span>👤 {t.assigned_to}</span>}
-                  {t.due && <span style={{ color: overdue ? C.red : days <= 3 ? C.amber : C.muted, fontWeight: overdue ? 700 : 400 }}>📅 Due {fmt(t.due)}{overdue ? " ⚠" : ""}</span>}
-                  {t.priority && <span>🔺 {t.priority}</span>}
+            <Card key={t.id} style={{ padding: "16px 20px" }}>
+              {isEditing ? (
+                <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                  <input value={editForm.title} onChange={e=>setEditForm(f=>({...f,title:e.target.value}))}
+                    style={{ width:"100%", padding:"8px 12px", borderRadius:7, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:13, color:C.text, outline:"none", boxSizing:"border-box" }}/>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:10 }}>
+                    <div>
+                      <div style={{ fontFamily:"Outfit,sans-serif", fontSize:10, color:C.faint, marginBottom:3 }}>DUE</div>
+                      <input type="date" value={editForm.due} onChange={e=>setEditForm(f=>({...f,due:e.target.value}))}
+                        style={{ width:"100%", padding:"6px 8px", borderRadius:6, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:11, color:C.text, outline:"none", boxSizing:"border-box" }}/>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily:"Outfit,sans-serif", fontSize:10, color:C.faint, marginBottom:3 }}>PRIORITY</div>
+                      <select value={editForm.priority} onChange={e=>setEditForm(f=>({...f,priority:e.target.value}))}
+                        style={{ width:"100%", padding:"6px 8px", borderRadius:6, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:11, color:C.text, outline:"none", boxSizing:"border-box" }}>
+                        {["High","Normal","Low"].map(p=><option key={p}>{p}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily:"Outfit,sans-serif", fontSize:10, color:C.faint, marginBottom:3 }}>STATUS</div>
+                      <select value={editForm.status} onChange={e=>setEditForm(f=>({...f,status:e.target.value}))}
+                        style={{ width:"100%", padding:"6px 8px", borderRadius:6, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:11, color:C.text, outline:"none", boxSizing:"border-box" }}>
+                        {["Open","In Progress","Completed"].map(s=><option key={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{ fontFamily:"Outfit,sans-serif", fontSize:10, color:C.faint, marginBottom:3 }}>ASSIGN TO</div>
+                      <select value={editForm.assigned_to} onChange={e=>setEditForm(f=>({...f,assigned_to:e.target.value}))}
+                        style={{ width:"100%", padding:"6px 8px", borderRadius:6, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:11, color:C.text, outline:"none", boxSizing:"border-box" }}>
+                        <option value="">Unassigned</option>
+                        {assignees.map(a=><option key={a}>{a}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <input value={editForm.notes} onChange={e=>setEditForm(f=>({...f,notes:e.target.value}))} placeholder="Notes"
+                    style={{ width:"100%", padding:"7px 12px", borderRadius:7, border:`1px solid ${C.border}`, background:C.surface, fontFamily:"Outfit,sans-serif", fontSize:12, color:C.text, outline:"none", boxSizing:"border-box" }}/>
+                  <div style={{ display:"flex", gap:8, justifyContent:"flex-end" }}>
+                    <button onClick={()=>setEditingTask(null)} style={{ background:"none", border:`1px solid ${C.border}`, borderRadius:7, padding:"6px 14px", fontFamily:"Outfit,sans-serif", fontSize:12, color:C.muted, cursor:"pointer" }}>Cancel</button>
+                    <button onClick={saveEdit} style={{ background:C.teal, color:"#0A0F1E", border:"none", borderRadius:7, padding:"6px 16px", fontFamily:"Outfit,sans-serif", fontSize:12, fontWeight:700, cursor:"pointer" }}>Save</button>
+                  </div>
                 </div>
-                {t.notes && <div style={{ marginTop: 8, fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.faint, background: "rgba(255,255,255,0.03)", borderRadius: 6, padding: "7px 10px", lineHeight: 1.6 }}>{t.notes}</div>}
-              </div>
-              <Badge label={t.status} color={s.color} />
+              ) : (
+                <div style={{ display:"flex", gap:16, alignItems:"flex-start" }}>
+                  <div style={{ width:8, height:8, borderRadius:"50%", background: t.priority === "High" ? C.red : t.priority === "Low" ? C.faint : C.amber, marginTop:6, flexShrink:0 }} />
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontFamily:"Outfit,sans-serif", fontSize:14, fontWeight:700, color:C.text, marginBottom:4 }}>{t.title}</div>
+                    <div style={{ display:"flex", gap:14, flexWrap:"wrap", fontFamily:"Outfit,sans-serif", fontSize:12, color:C.muted }}>
+                      {t.assigned_to && <span>👤 {t.assigned_to}</span>}
+                      {t.due && <span style={{ color: overdue ? C.red : days <= 3 ? C.amber : C.muted, fontWeight: overdue ? 700 : 400 }}>📅 Due {fmt(t.due)}{overdue ? " ⚠" : ""}</span>}
+                      {t.priority && <span>🔺 {t.priority}</span>}
+                    </div>
+                    {t.notes && <div style={{ marginTop:8, fontFamily:"Outfit,sans-serif", fontSize:12, color:C.faint, background:"rgba(255,255,255,0.03)", borderRadius:6, padding:"7px 10px", lineHeight:1.6 }}>{t.notes}</div>}
+                  </div>
+                  <div style={{ display:"flex", flexDirection:"column", gap:6, alignItems:"flex-end", flexShrink:0 }}>
+                    <Badge label={t.status} color={s.color} />
+                    <div style={{ display:"flex", gap:8 }}>
+                      <button onClick={()=>cycleStatus(t)} style={{ background:C.tealLight, color:C.teal, border:"none", borderRadius:6, padding:"4px 10px", fontFamily:"Outfit,sans-serif", fontSize:11, fontWeight:700, cursor:"pointer" }}>
+                        {t.status==="Completed"||t.status==="Complete" ? "↩ Reopen" : t.status==="In Progress" ? "✓ Complete" : "▶ Start"}
+                      </button>
+                      <button onClick={()=>startEdit(t)} style={{ background:"transparent", border:`1px solid ${C.border}`, borderRadius:6, padding:"4px 8px", fontFamily:"Outfit,sans-serif", fontSize:11, color:C.muted, cursor:"pointer" }}>✏️</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </Card>
           );
         })}
@@ -447,6 +588,7 @@ function DocumentsPage({ clientId }) {
   const [filter, setFilter]     = useState("All");
   const [expanded, setExpanded] = useState({});
   const [viewMode, setViewMode] = useState("folder"); // "folder" | "grid"
+  const [sortOrder, setSortOrder] = useState("desc"); // "desc" = newest first, "asc" = oldest first
 
   useEffect(() => {
     async function load() {
@@ -474,7 +616,12 @@ function DocumentsPage({ clientId }) {
   }, [clientId]);
 
   const categories = ["All", ...new Set(docs.map(d => d.category).filter(Boolean))];
-  const shown = filter === "All" ? docs : docs.filter(d => d.category === filter);
+  const shown = (filter === "All" ? docs : docs.filter(d => d.category === filter))
+    .slice().sort((a, b) => {
+      const da = new Date(a.created_at || 0);
+      const db = new Date(b.created_at || 0);
+      return sortOrder === "desc" ? db - da : da - db;
+    });
 
   // Group by category for folder view
   const grouped = {};
@@ -517,7 +664,7 @@ function DocumentsPage({ clientId }) {
           <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 13, fontWeight: 700, color: C.teal, marginBottom: 2 }}>📤 Submit a Document</div>
           <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.muted }}>Upload files to the chapter shared folder — KDC will review and add them to the portal.</div>
         </div>
-        <a href="https://kellydandoconsulting.egnyte.com/fl/yFpthgq3FCcW" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
+        <a href="https://kellydandoconsulting.egnyte.com/ul/NKiFpmDzKJ" target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none" }}>
           <button style={{ background: C.teal, color: "#0A0F1E", border: "none", borderRadius: 8, padding: "10px 20px", fontFamily: "Outfit, sans-serif", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
             📁 Open Upload Folder →
           </button>
@@ -531,10 +678,15 @@ function DocumentsPage({ clientId }) {
             <button key={c} onClick={() => setFilter(c)} style={{ padding: "6px 16px", borderRadius: 20, border: `1px solid ${filter === c ? C.gold : C.border}`, background: filter === c ? C.goldLight : "transparent", color: filter === c ? C.gold : C.muted, fontFamily: "Outfit, sans-serif", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{c}</button>
           ))}
         </div>
-        <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.05)", borderRadius: 8, padding: 3 }}>
-          {[["folder","📁 Folders"],["grid","⊞ Grid"]].map(([v,l]) => (
-            <button key={v} onClick={() => setViewMode(v)} style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: viewMode === v ? C.card : "transparent", color: viewMode === v ? C.text : C.muted, fontFamily: "Outfit, sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{l}</button>
-          ))}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button onClick={() => setSortOrder(s => s === "desc" ? "asc" : "desc")} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${C.border}`, background: "transparent", color: C.muted, fontFamily: "Outfit, sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+            {sortOrder === "desc" ? "⬇ Newest First" : "⬆ Oldest First"}
+          </button>
+          <div style={{ display: "flex", gap: 4, background: "rgba(255,255,255,0.05)", borderRadius: 8, padding: 3 }}>
+            {[["folder","📁 Folders"],["grid","⊞ Grid"]].map(([v,l]) => (
+              <button key={v} onClick={() => setViewMode(v)} style={{ padding: "5px 12px", borderRadius: 6, border: "none", background: viewMode === v ? C.card : "transparent", color: viewMode === v ? C.text : C.muted, fontFamily: "Outfit, sans-serif", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>{l}</button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -616,9 +768,12 @@ function DocumentsPage({ clientId }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // MESSAGES PAGE
 // ══════════════════════════════════════════════════════════════════════════════
-function MessagesPage({ boardUser, clientId, messages, onNewMessage }) {
-  const [body, setBody]     = useState("");
-  const [sending, setSending] = useState(false);
+function MessagesPage({ boardUser, clientId, messages, onNewMessage, onDeleteMessage, onEditMessage }) {
+  const [body, setBody]           = useState("");
+  const [sending, setSending]     = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editBody, setEditBody]   = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState(null);
 
   const send = async () => {
     if (!body.trim()) return;
@@ -631,6 +786,17 @@ function MessagesPage({ boardUser, clientId, messages, onNewMessage }) {
     }).select().single();
     if (!error && data) { onNewMessage(data); setBody(""); }
     setSending(false);
+  };
+
+  const saveEdit = async (id) => {
+    const { error } = await supabase.from("board_messages").update({body: editBody}).eq("id", id);
+    if (!error) { onEditMessage(id, editBody); setEditingId(null); setEditBody(""); }
+  };
+
+  const deleteMsg = async (id) => {
+    await supabase.from("board_messages").delete().eq("id", id);
+    onDeleteMessage(id);
+    setDeleteConfirm(null);
   };
 
   return (
@@ -659,9 +825,10 @@ function MessagesPage({ boardUser, clientId, messages, onNewMessage }) {
       {messages.map(m => {
         const isKDC  = m.author_email?.includes("kellydando") || m.author_email?.includes("kdc");
         const isMe   = m.author_email === boardUser.email;
+        const canEdit = isMe;
         return (
           <Card key={m.id} style={{ borderLeft: `3px solid ${isKDC ? C.gold : isMe ? C.teal : C.indigo}` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 8 }}>
               <div style={{ width: 36, height: 36, borderRadius: "50%", background: isKDC ? C.gold : isMe ? C.teal : C.indigo, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Outfit, sans-serif", fontWeight: 800, fontSize: 12, color: "#0A0F1E", flexShrink: 0 }}>
                 {initials(m.author_name)}
               </div>
@@ -670,11 +837,39 @@ function MessagesPage({ boardUser, clientId, messages, onNewMessage }) {
                   <span style={{ fontFamily: "Outfit, sans-serif", fontSize: 13, fontWeight: 700, color: isKDC ? C.gold : C.text }}>
                     {m.author_name}{isKDC ? " · KDC" : isMe ? " · You" : ""}
                   </span>
-                  <span style={{ fontFamily: "Outfit, sans-serif", fontSize: 11, color: C.faint }}>{fmt(m.created_at?.slice(0, 10))}</span>
+                  <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                    <span style={{ fontFamily: "Outfit, sans-serif", fontSize: 11, color: C.faint }}>{fmt(m.created_at?.slice(0, 10))}</span>
+                    {canEdit && editingId !== m.id && (
+                      <>
+                        <button onClick={() => { setEditingId(m.id); setEditBody(m.body); }} style={{ background: "none", border: "none", fontFamily: "Outfit, sans-serif", fontSize: 11, color: C.teal, cursor: "pointer", padding: 0 }}>Edit</button>
+                        <button onClick={() => setDeleteConfirm(m.id)} style={{ background: "none", border: "none", fontFamily: "Outfit, sans-serif", fontSize: 11, color: C.red, cursor: "pointer", padding: 0 }}>Delete</button>
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-            <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 14, color: C.text, lineHeight: 1.7, paddingLeft: 46 }}>{m.body}</div>
+            {deleteConfirm === m.id && (
+              <div style={{ background: C.redLight, borderRadius: 6, padding: "8px 12px", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.red }}>Delete this message?</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setDeleteConfirm(null)} style={{ background: "none", border: "none", fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.muted, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => deleteMsg(m.id)} style={{ background: C.red, color: "#fff", border: "none", borderRadius: 5, padding: "3px 10px", fontFamily: "Outfit, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Delete</button>
+                </div>
+              </div>
+            )}
+            {editingId === m.id ? (
+              <div style={{ paddingLeft: 46 }}>
+                <textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={3}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 7, border: `1px solid ${C.border}`, background: C.surface, fontFamily: "Outfit, sans-serif", fontSize: 13, color: C.text, outline: "none", resize: "vertical", boxSizing: "border-box", marginBottom: 8 }}/>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setEditingId(null)} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 12px", fontFamily: "Outfit, sans-serif", fontSize: 12, color: C.muted, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => saveEdit(m.id)} style={{ background: C.teal, color: "#0A0F1E", border: "none", borderRadius: 6, padding: "5px 14px", fontFamily: "Outfit, sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Save</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontFamily: "Outfit, sans-serif", fontSize: 14, color: C.text, lineHeight: 1.7, paddingLeft: 46 }}>{m.body}</div>
+            )}
             {m.pinned && <div style={{ marginTop: 8, paddingLeft: 46 }}><Badge label="📌 Pinned" color={C.gold} /></div>}
           </Card>
         );
@@ -697,6 +892,7 @@ const NAV = [
 export default function App() {
   const [session,    setSession]    = useState(null);
   const [boardUser,  setBoardUser]  = useState(null);
+  const [boardUsers, setBoardUsers] = useState([]);
   const [authState,  setAuthState]  = useState("loading"); // loading | unauthenticated | magic_sent | authorized | not_authorized
   const [magicEmail, setMagicEmail] = useState("");
   const [page,       setPage]       = useState("dashboard");
@@ -728,6 +924,9 @@ export default function App() {
       setBoardUser(data);
       setAuthState("authorized");
       loadData(data.client_id);
+      // Load all board users for this chapter so tasks can be assigned
+      supabase.from("board_users").select("*").eq("client_id", data.client_id).eq("active", true)
+        .then(({ data: users }) => setBoardUsers(users || []));
     } else {
       setAuthState("not_authorized");
     }
@@ -826,10 +1025,10 @@ export default function App() {
         </div>
 
         {page === "dashboard" && <DashboardPage boardUser={boardUser} tasks={tasks} events={events} messages={messages} />}
-        {page === "tasks"     && <TasksPage tasks={tasks} />}
+        {page === "tasks"     && <TasksPage tasks={tasks} setTasks={setTasks} boardUser={boardUser} boardUsers={boardUsers} />}
         {page === "calendar"  && <CalendarPage events={events} />}
         {page === "documents" && <DocumentsPage clientId={boardUser.client_id} />}
-        {page === "messages"  && <MessagesPage boardUser={boardUser} clientId={boardUser.client_id} messages={messages} onNewMessage={m => setMessages(ms => [m, ...ms])} />}
+        {page === "messages"  && <MessagesPage boardUser={boardUser} clientId={boardUser.client_id} messages={messages} onNewMessage={m => setMessages(ms => [m, ...ms])} onDeleteMessage={id => setMessages(ms => ms.filter(m => m.id !== id))} onEditMessage={(id, body) => setMessages(ms => ms.map(m => m.id === id ? {...m, body} : m))} />}
       </div>
 
       {/* Footer */}
